@@ -624,6 +624,173 @@ server.tool(
     }
 );
 
+// Tool to get available states for work items
+server.tool(
+    "get_available_states",
+    "Gets the available states for work items in Plan for a given application",
+    {
+        application: z.string().describe("Name of the application")
+    },
+    async ({ application }) => {
+        try {
+            if (!globalCookies) {
+                globalCookies = await getCookiesFromServer(serverURL);
+                if (!globalCookies) {
+                    console.error("Failed to retrieve cookies from server.");
+                    return { error: "Failed to retrieve cookies." };
+                }
+                console.log("Received Cookies:", globalCookies);
+            } else {
+                console.log("Reusing Stored Cookies:", globalCookies);
+            }
+            
+            const response = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/workspace/queryDefs/WorkItem/fieldOptions/state`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Failed to get available states with status ${response.status}: ${errorText}`);
+            }
+
+            const data = await response.json();
+            
+            return {
+                content: [{ type: 'text', text: `Available states: ${JSON.stringify(data)}` }]
+            };
+        } catch (e) {
+            return {
+                content: [{ type: 'text', text: `Error retrieving available states: ${e.message}` }]
+            };
+        }
+    }
+);
+
+// Tool to change work item state
+server.tool(
+    "change_work_item_state",
+    "Changes the state of a work item in Plan using a two-step process (movement request + commit)",
+    {
+        dbid: z.string().describe("The dbid field from the workitem to identify it, this is the first field returned for each workitem in the get_work_items tool."),
+        application: z.string().describe("Name of the application"),
+        targetState: z.string().describe("The target state to transition the work item to (e.g., 'Resolve', 'Close', 'Reopen', etc.)")
+    },
+    async ({ dbid, application, targetState }) => {
+        try {
+            if (!globalCookies) {
+                globalCookies = await getCookiesFromServer(serverURL);
+                if (!globalCookies) {
+                    console.error("Failed to retrieve cookies from server.");
+                    return { error: "Failed to retrieve cookies." };
+                }
+                console.log("Received Cookies:", globalCookies);
+            } else {
+                console.log("Reusing Stored Cookies:", globalCookies);
+            }
+
+            // First, get the current work item data
+            const getCurrentUrl = `${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/${dbid}?useDbid=true`;
+            
+            const getCurrentResponse = await fetch(getCurrentUrl, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                }
+            });
+
+            if (!getCurrentResponse.ok) {
+                const errorText = await getCurrentResponse.text();
+                throw new Error(`Failed to get current work item data with status ${getCurrentResponse.status}: ${errorText}`);
+            }
+
+            const currentWorkItem = await getCurrentResponse.json();
+            
+            // Step 1: Make the movement request with minimal body
+            const movementUrl = `${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/${dbid}?actionName=${targetState}&operation=Edit&useDbid=true`;
+            
+            const movementResponse = await fetch(movementUrl, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: "{}"  // Minimal body like in browser
+            });
+
+            if (!movementResponse.ok) {
+                const errorText = await movementResponse.text();
+                throw new Error(`Movement request failed with status ${movementResponse.status}: ${errorText}`);
+            }
+
+            const movementData = await movementResponse.json();
+            console.log("Movement request successful:", movementData);
+
+            // Wait 1 second before commit to allow database updates to complete
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Step 2: Commit the change with minimal body (like browser)
+            const commitUrl = `${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/${dbid}?operation=Commit&useDbid=true`;
+            
+            // Use the same minimal commit body structure as the browser
+            const commitBody = {
+                "dbId": movementData.dbId,
+                "fields": []
+            };
+            
+            const commitResponse = await fetch(commitUrl, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: JSON.stringify(commitBody)
+            });
+
+            if (!commitResponse.ok) {
+                const errorText = await commitResponse.text();
+                throw new Error(`Commit request failed with status ${commitResponse.status}: ${errorText}`);
+            }
+
+            const commitData = await commitResponse.json();
+            console.log("Commit request successful:", commitData);
+
+            return {
+                content: [{ 
+                    type: 'text', 
+                    text: `Work item ${dbid} state successfully changed to '${targetState}'. Both movement and commit operations completed successfully.` 
+                }]
+            };
+
+        } catch (e) {
+            // Handle specific state transition errors
+            if (e.message.includes('status 400') || e.message.includes('status 422')) {
+                return {
+                    content: [{ 
+                        type: 'text', 
+                        text: `State transition error: The transition from current state to '${targetState}' may not be valid for work item ${dbid}. Error: ${e.message}` 
+                    }]
+                };
+            } else {
+                return {
+                    content: [{ 
+                        type: 'text', 
+                        text: `Error changing work item state: ${e.message}` 
+                    }]
+                };
+            }
+        }
+    }
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 
