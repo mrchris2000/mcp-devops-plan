@@ -1,6 +1,6 @@
 {
   "name": "@securedevops/mcp-devops-plan",
-  "version": "0.1.22",
+  "version": "0.1.31",
   "description": "A Model Context Protocol (MCP) server for DevOps Plan work item management",
   "type": "module",
   "main": "src/lib/server.js",

@@ -406,7 +406,7 @@ server.tool(
             const data = await response.json();
             if (data.viewURL) {
                 return {
-                    content: [{ type: 'text', text: `Work item created successfully. View it at: ${serverURL}/#${data.viewURL}` }]
+                    content: [{ type: 'text', text: `Work item created successfully. dbId: ${data.dbId}. View it at: ${serverURL}/#${data.viewURL}` }]
                 };
             } else {
                 throw new Error("Failed to create work item");
@@ -625,9 +625,10 @@ server.tool(
 );
 
 // Tool to get available states for work items
+// Tool to get available state transitions for work items
 server.tool(
     "get_available_states",
-    "Gets the available states for work items in Plan for a given application",
+    "Gets the state transition matrix for work items in Plan for a given application, showing available transitions/actions",
     {
         application: z.string().describe("Name of the application")
     },
@@ -644,10 +645,11 @@ server.tool(
                 console.log("Reusing Stored Cookies:", globalCookies);
             }
             
-            const response = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/workspace/queryDefs/WorkItem/fieldOptions/state`, {
+            const response = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json, text/plain, */*',
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
@@ -655,17 +657,74 @@ server.tool(
 
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`Failed to get available states with status ${response.status}: ${errorText}`);
+                throw new Error(`Failed to get state transition matrix with status ${response.status}: ${errorText}`);
             }
 
             const data = await response.json();
             
+            // Format the response to make it more readable
+            let formattedResponse = "State Transition Matrix:\n\n";
+            
+            if (data && Array.isArray(data)) {
+                // Extract state transitions from work items with _CHANGE_STATE actions
+                const stateTransitions = {};
+                
+                data.forEach(workItem => {
+                    if (workItem.actions && Array.isArray(workItem.actions)) {
+                        workItem.actions.forEach(action => {
+                            if (action.actionType === "_CHANGE_STATE") {
+                                const actionName = action.name;
+                                const destState = action.actionDestStateName;
+                                const sourceStates = action.actionSourceStateNames || [];
+                                
+                                sourceStates.forEach(sourceState => {
+                                    if (!stateTransitions[sourceState]) {
+                                        stateTransitions[sourceState] = [];
+                                    }
+                                    
+                                    // Avoid duplicates
+                                    const existingTransition = stateTransitions[sourceState].find(
+                                        t => t.action === actionName && t.toState === destState
+                                    );
+                                    
+                                    if (!existingTransition) {
+                                        stateTransitions[sourceState].push({
+                                            action: actionName,
+                                            toState: destState
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    }
+                });
+                
+                // Format the extracted transitions
+                if (Object.keys(stateTransitions).length > 0) {
+                    for (const [fromState, transitions] of Object.entries(stateTransitions)) {
+                        formattedResponse += `From "${fromState}":\n`;
+                        transitions.forEach(transition => {
+                            formattedResponse += `  - Action: "${transition.action}" -> To: "${transition.toState}"\n`;
+                        });
+                        formattedResponse += "\n";
+                    }
+                } else {
+                    formattedResponse += "No state transitions found in the work items.\n";
+                }
+            } else {
+                formattedResponse += "Unexpected response format. Raw data:\n";
+                formattedResponse += JSON.stringify(data, null, 2);
+            }
+            
             return {
-                content: [{ type: 'text', text: `Available states: ${JSON.stringify(data)}` }]
+                content: [{ 
+                    type: 'text', 
+                    text: `${formattedResponse}\n\nRaw data: ${JSON.stringify(data)}` 
+                }]
             };
         } catch (e) {
             return {
-                content: [{ type: 'text', text: `Error retrieving available states: ${e.message}` }]
+                content: [{ type: 'text', text: `Error retrieving state transition matrix: ${e.message}` }]
             };
         }
     }
@@ -676,7 +735,7 @@ server.tool(
     "change_work_item_state",
     "Changes the state of a work item in Plan using a two-step process (movement request + commit)",
     {
-        dbid: z.string().describe("The dbid field from the workitem to identify it, this is the first field returned for each workitem in the get_work_items tool."),
+        dbid: z.string().describe("The dbid field from the workitem to identify it, this is the first field returned for each workitem in the get_work_items tool, or from the create_work_item tool as the dbId field."),
         application: z.string().describe("Name of the application"),
         targetState: z.string().describe("The target state to transition the work item to (e.g., 'Resolve', 'Close', 'Reopen', etc.)")
     },
