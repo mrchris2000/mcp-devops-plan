@@ -573,6 +573,130 @@ server.tool(
     }
 );
 
+// Tool to update a work item
+server.tool(
+    "update_work_item",
+    "Updates fields of an existing work item. Provide the fields you want to update with their new values.",
+    {
+        dbid: z.string().describe("The dbid field from the workitem to identify it"),
+        application: z.string().describe("Name of the application"),
+        fields: z.array(z.object({
+            name: z.string().describe("Field name (e.g., 'Description', 'Owner', 'Component', 'Sprint', 'StoryPoints', 'BusinessValue', etc.)"),
+            value: z.string().describe("The new value for the field"),
+            type: z.string().optional().describe("Field type (e.g., 'SHORT_STRING', 'MULTILINE_STRING', 'INT', 'REFERENCE', 'DATE_TIME'). Defaults to 'SHORT_STRING'."),
+        })).describe("Array of fields to update"),
+    },
+    async ({ dbid, application, fields }) => {
+        try {
+            if (!globalCookies) {
+                globalCookies = await getCookiesFromServer(serverURL);
+                if (!globalCookies) {
+                    console.error("Failed to retrieve cookies from server.");
+                    return { error: "Failed to retrieve cookies." };
+                }
+                console.log("Received Cookies:", globalCookies);
+            } else {
+                console.log("Reusing Stored Cookies:", globalCookies);
+            }
+
+            // Step 1: Modify action + Edit operation with empty body (like UI does)
+            const modifyUrl = `${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/${dbid}?actionName=Modify&operation=Edit&useDbid=true`;
+            
+            const modifyResponse = await fetch(modifyUrl, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: "{}"
+            });
+
+            if (!modifyResponse.ok) {
+                const errorText = await modifyResponse.text();
+                throw new Error(`Modify action failed: ${modifyResponse.statusText} - ${errorText}`);
+            }
+
+            console.log("Modify action successful");
+
+            // Step 2: Edit operation with simple field structure (name and value only)
+            const editBody = {
+                fields: fields.map(field => ({
+                    name: field.name,
+                    value: field.value
+                }))
+            };
+
+            const editUrl = `${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/${dbid}?operation=Edit&useDbid=true`;
+            
+            const editResponse = await fetch(editUrl, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: JSON.stringify(editBody)
+            });
+
+            if (!editResponse.ok) {
+                const errorText = await editResponse.text();
+                throw new Error(`Edit operation failed: ${editResponse.statusText} - ${errorText}`);
+            }
+
+            const editData = await editResponse.json();
+            console.log("Edit operation successful");
+
+            // Step 3: Commit operation with full field structure
+            const commitBody = {
+                dbId: dbid,
+                fields: fields.map(field => ({
+                    name: field.name,
+                    value: field.value,
+                    valueStatus: field.value ? "HAS_VALUE" : "HAS_NO_VALUE",
+                    validationStatus: "_KNOWN_VALID",
+                    requiredness: "OPTIONAL",
+                    requirednessForUser: "OPTIONAL",
+                    type: field.type || "SHORT_STRING",
+                    valueAsList: field.value ? [field.value] : [],
+                    messageText: "",
+                    maxLength: field.type === "SHORT_STRING" ? 254 : 0
+                }))
+            };
+
+            const commitUrl = `${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/${dbid}?operation=Commit&useDbid=true`;
+            
+            const commitResponse = await fetch(commitUrl, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: JSON.stringify(commitBody)
+            });
+
+            if (commitResponse.ok) {
+                const result = await commitResponse.json();
+                const updatedFields = fields.map(f => `- ${f.name}: ${f.value}`).join('\n');
+                return {
+                    content: [{ type: 'text', text: `Work item ${dbid} updated successfully.\n\nUpdated fields:\n${updatedFields}` }]
+                };
+            } else {
+                const errorText = await commitResponse.text();
+                throw new Error(`Commit operation failed: ${commitResponse.statusText} - ${errorText}`);
+            }
+        } catch (e) {
+            return {
+                content: [{ type: 'text', text: `Error updating work item: ${e.message}` }]
+            };
+        }
+    }
+);
+
 //Tool to retrieve all applications from Plan
 server.tool(
     "get_applications",
@@ -820,7 +944,7 @@ server.tool(
             }
 
             const commitData = await commitResponse.json();
-            console.log("Commit request successful:", commitData);
+            //console.log("Commit request successful:", commitData);
 
             return {
                 content: [{ 
@@ -849,6 +973,7 @@ server.tool(
         }
     }
 );
+
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
