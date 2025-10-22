@@ -266,6 +266,179 @@ server.tool(
     }
 )
 
+// Tool to get sprints for an application in Plan
+server.tool(
+    "get_sprints",
+    "Get the list of sprints in Plan for a given application",
+    {
+        application: z.string().describe("Name of the application")
+    },
+    async ({ application }) => {
+        try {
+            if (!globalCookies) {
+                globalCookies = await getCookiesFromServer(serverURL);
+                if (!globalCookies) {
+                    console.error("Failed to retrieve cookies from server.");
+                    return { error: "Failed to retrieve cookies." };
+                }
+                console.log("Received Cookies:", globalCookies);
+            } else {
+                console.log("Reusing Stored Cookies:", globalCookies);
+            }
+
+            const queryPayload = {
+                queryDef: {
+                    primaryEntityDefName: "Sprint",
+                    queryFieldDefs: [
+                        { fieldPathName: "Name", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "StartDate", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "EndDate", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "dbid", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "record_type", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "Release", isShown: true, sortOrder: 0 }
+                    ],
+                    filterNode: {
+                        boolOp: "BOOL_OP_AND",
+                        fieldFilters: [],
+                        childFilterNodes: []
+                    }
+                },
+                resultSetOptions: {
+                    convertToLocalTime: false,
+                    maxResultSetRows: 10000,
+                    pageSize: 10000
+                }
+            };
+
+            const queryResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/query`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: JSON.stringify(queryPayload)
+            });
+
+            const queryData = await queryResponse.json();
+            const resultSetId = queryData.result_set_id;
+
+            if (!resultSetId) {
+                throw new Error(`Failed to retrieve result set ID. Response: ${JSON.stringify(queryData)}`);
+            }
+
+            const sprintsResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/query/${resultSetId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                }
+            });
+
+            const sprintsData = await sprintsResponse.json();
+
+            if (sprintsData && sprintsData.rows) {
+                return {
+                    content: [{ type: 'text', text: `Sprints retrieved: ${JSON.stringify(sprintsData)}` }]
+                };
+            } else {
+                throw new Error("Failed to retrieve sprints");
+            }
+        } catch (e) {
+            return {
+                content: [{ type: 'text', text: `Error retrieving sprints: ${e.message}` }]
+            };
+        }
+    }
+)
+
+// Tool to get releases for an application in Plan
+server.tool(
+    "get_releases",
+    "Get the list of releases in Plan for a given application",
+    {
+        application: z.string().describe("Name of the application")
+    },
+    async ({ application }) => {
+        try {
+            if (!globalCookies) {
+                globalCookies = await getCookiesFromServer(serverURL);
+                if (!globalCookies) {
+                    console.error("Failed to retrieve cookies from server.");
+                    return { error: "Failed to retrieve cookies." };
+                }
+                console.log("Received Cookies:", globalCookies);
+            } else {
+                console.log("Reusing Stored Cookies:", globalCookies);
+            }
+
+            const queryPayload = {
+                queryDef: {
+                    primaryEntityDefName: "Release",
+                    queryFieldDefs: [
+                        { fieldPathName: "Name", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "ReleaseType", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "dbid", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "record_type", isShown: true, sortOrder: 0 },
+                        { fieldPathName: "Sprints", isShown: true, sortOrder: 0 }
+                    ],
+                    filterNode: {
+                        boolOp: "BOOL_OP_AND",
+                        fieldFilters: [],
+                        childFilterNodes: []
+                    }
+                },
+                resultSetOptions: {
+                    convertToLocalTime: false,
+                    maxResultSetRows: 10000,
+                    pageSize: 10000
+                }
+            };
+
+            const queryResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/query`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: JSON.stringify(queryPayload)
+            });
+
+            const queryData = await queryResponse.json();
+            const resultSetId = queryData.result_set_id;
+
+            if (!resultSetId) {
+                throw new Error(`Failed to retrieve result set ID. Response: ${JSON.stringify(queryData)}`);
+            }
+
+            const releasesResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/query/${resultSetId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                }
+            });
+
+            const releasesData = await releasesResponse.json();
+
+            if (releasesData && releasesData.rows) {
+                return {
+                    content: [{ type: 'text', text: `Releases retrieved: ${JSON.stringify(releasesData)}` }]
+                };
+            } else {
+                throw new Error("Failed to retrieve releases");
+            }
+        } catch (e) {
+            return {
+                content: [{ type: 'text', text: `Error retrieving releases: ${e.message}` }]
+            };
+        }
+    }
+)
+
 // Tool to get available work item types for a project in Plan
 server.tool(
     "get_available_workitem_types",
@@ -468,7 +641,9 @@ server.tool(
                         { fieldPathName: "Parent.record_type", isShown: true },
                         { fieldPathName: "Tags", isShown: true },
                         { fieldPathName: "WIType", isShown: true },
-                        { fieldPathName: "State", isShown: true }
+                        { fieldPathName: "Sprint", isShown: true },
+                        { fieldPathName: "PlannedRelease", isShown: true },
+                        { fieldPathName: "FoundInRelease", isShown: true }
                     ],
                     filterNode: {
                         boolOp: "BOOL_OP_AND",
@@ -499,7 +674,7 @@ server.tool(
             const resultSetId = queryData.result_set_id;
 
             if (!resultSetId) {
-                throw new Error("Failed to retrieve result set ID");
+                throw new Error(`Failed to retrieve result set ID. Response: ${JSON.stringify(queryData)}`);
             }
 
             // Second API call to fetch work items
