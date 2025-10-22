@@ -96,6 +96,73 @@ async function cleanup() {
 process.on('SIGTERM', cleanup);
 process.on('SIGINT', cleanup);
 
+/**
+ * Shared helper function for updating entities using the Edit+Commit pattern
+ * @param {string} application - Name of the Plan application
+ * @param {string} entityType - Entity type (e.g., "Sprint", "Release", "WorkItem")
+ * @param {string} entityDbid - The dbid of the entity to update
+ * @param {Array} editFields - Array of {name, value} for Edit operation
+ * @param {Array} commitFields - Array of full field objects for Commit operation
+ * @param {Object} commitPayloadExtras - Additional fields for commit payload (e.g., {dbId})
+ * @returns {Object} Result object with content or error
+ */
+async function _updateEntity(application, entityType, entityDbid, editFields, commitFields, commitPayloadExtras = {}) {
+    if (!globalCookies) {
+        globalCookies = await getCookiesFromServer(serverURL);
+        if (!globalCookies) {
+            console.error("Failed to retrieve cookies from server.");
+            throw new Error("Failed to retrieve cookies.");
+        }
+        console.log("Received Cookies:", globalCookies);
+    } else {
+        console.log("Reusing Stored Cookies:", globalCookies);
+    }
+
+    // Step 1: PATCH with operation=Edit (simple fields structure)
+    const editPayload = { fields: editFields };
+
+    const editResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/${entityType}/${entityDbid}?operation=Edit&useDbid=true`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Basic ${personal_access_token_string}`,
+            'Cookie': globalCookies
+        },
+        body: JSON.stringify(editPayload)
+    });
+
+    if (!editResponse.ok) {
+        const errorText = await editResponse.text();
+        throw new Error(`Edit operation failed: ${editResponse.status} ${errorText}`);
+    }
+
+    const editData = await editResponse.json();
+    console.log("Edit response:", JSON.stringify(editData));
+
+    // Step 2: PATCH with operation=Commit (full field structure with metadata)
+    const commitPayload = {
+        ...commitPayloadExtras,
+        fields: commitFields
+    };
+
+    const commitResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/${entityType}/${entityDbid}?operation=Commit&useDbid=true`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Basic ${personal_access_token_string}`,
+            'Cookie': globalCookies
+        },
+        body: JSON.stringify(commitPayload)
+    });
+
+    if (!commitResponse.ok) {
+        const errorText = await commitResponse.text();
+        throw new Error(`Commit operation failed: ${commitResponse.status} ${errorText}`);
+    }
+
+    return await commitResponse.json();
+}
+
 // Start the server
 // Tool to get projects from Plan
 server.tool(
@@ -438,17 +505,18 @@ server.tool(
     }
 )
 
-// Tool to update sprint dates
+// Tool to create or update a sprint
 server.tool(
-    "update_sprint",
-    "Updates the start and/or end date of a sprint in Plan using a two-step Edit+Commit process",
+    "create_or_update_sprint",
+    "Creates a new sprint or updates an existing sprint in Plan. If sprintDbid is provided, updates the sprint; otherwise creates a new one.",
     {
         application: z.string().describe("Name of the application"),
-        sprintDbid: z.string().describe("The dbid field from the sprint to identify it"),
-        startDate: z.string().optional().describe("New start date in YYYY-MM-DD format (optional)"),
-        endDate: z.string().optional().describe("New end date in YYYY-MM-DD format (optional)")
+        sprintDbid: z.string().optional().describe("The dbid of the sprint to update (optional - omit to create new sprint)"),
+        name: z.string().optional().describe("Name of the sprint (required for creation, optional for update)"),
+        startDate: z.string().optional().describe("Start date in YYYY-MM-DD format (optional)"),
+        endDate: z.string().optional().describe("End date in YYYY-MM-DD format (optional)")
     },
-    async ({ application, sprintDbid, startDate, endDate }) => {
+    async ({ application, sprintDbid, name, startDate, endDate }) => {
         try {
             if (!globalCookies) {
                 globalCookies = await getCookiesFromServer(serverURL);
@@ -461,12 +529,45 @@ server.tool(
                 console.log("Reusing Stored Cookies:", globalCookies);
             }
 
-            if (!startDate && !endDate) {
-                throw new Error("At least one of startDate or endDate must be provided");
+            let targetDbid = sprintDbid;
+            const isCreating = !sprintDbid;
+
+            // CREATE MODE: Step 1 - POST to create empty Sprint
+            if (isCreating) {
+                if (!name) {
+                    throw new Error("Name is required when creating a new sprint");
+                }
+
+                const createResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Sprint?operation=Edit&useDbid=true`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Basic ${personal_access_token_string}`,
+                        'Cookie': globalCookies
+                    },
+                    body: JSON.stringify({ fields: [] })
+                });
+
+                if (!createResponse.ok) {
+                    const errorText = await createResponse.text();
+                    throw new Error(`Create operation failed: ${createResponse.status} ${errorText}`);
+                }
+
+                const createData = await createResponse.json();
+                targetDbid = createData.dbId;
+                console.log("Created Sprint with dbId:", targetDbid);
+            } else {
+                // UPDATE MODE: Validate at least one field to update
+                if (!name && !startDate && !endDate) {
+                    throw new Error("At least one of name, startDate, or endDate must be provided for update");
+                }
             }
 
-            // Step 1: PATCH with operation=Edit (simple fields structure)
+            // Step 2: PATCH Edit to set fields
             const editFields = [];
+            if (name) {
+                editFields.push({ name: "Name", value: name });
+            }
             if (startDate) {
                 editFields.push({ name: "StartDate", value: startDate });
             }
@@ -476,7 +577,7 @@ server.tool(
 
             const editPayload = { fields: editFields };
 
-            const editResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Sprint/${sprintDbid}?operation=Edit&useDbid=true`, {
+            const editResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Sprint/${targetDbid}?operation=Edit&useDbid=true`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
@@ -494,38 +595,60 @@ server.tool(
             const editData = await editResponse.json();
             console.log("Edit response:", JSON.stringify(editData));
 
-            // Step 2: PATCH with operation=Commit (full field structure with metadata)
+            // Step 3: PATCH Commit with full field metadata
             const commitFields = [];
             
+            if (name) {
+                commitFields.push({
+                    name: "Name",
+                    value: name,
+                    valueStatus: "HAS_VALUE",
+                    validationStatus: "_KNOWN_VALID",
+                    requiredness: "MANDATORY",
+                    requirednessForUser: "MANDATORY",
+                    type: "SHORT_STRING",
+                    valueAsList: [name],
+                    messageText: "",
+                    maxLength: 254
+                });
+            }
+
             if (startDate) {
                 commitFields.push({
                     name: "StartDate",
                     value: `${startDate} 00:00:00`,
-                    valueStatus: "VALUE_STATUS_VALID",
-                    validationStatus: "VALIDATION_STATUS_VALID",
-                    requiredness: "REQUIREDNESS_REQUIRED",
+                    valueStatus: "HAS_VALUE",
+                    validationStatus: "_KNOWN_VALID",
+                    requiredness: "MANDATORY",
+                    requirednessForUser: "MANDATORY",
                     type: "DATE_TIME",
-                    valueAsList: [],
-                    isEditable: true
+                    valueAsList: [`${startDate} 00:00:00`],
+                    messageText: "",
+                    maxLength: 0
                 });
             }
-            
+
             if (endDate) {
                 commitFields.push({
                     name: "EndDate",
                     value: `${endDate} 00:00:00`,
-                    valueStatus: "VALUE_STATUS_VALID",
-                    validationStatus: "VALIDATION_STATUS_VALID",
-                    requiredness: "REQUIREDNESS_REQUIRED",
+                    valueStatus: "HAS_VALUE",
+                    validationStatus: "_KNOWN_VALID",
+                    requiredness: "MANDATORY",
+                    requirednessForUser: "MANDATORY",
                     type: "DATE_TIME",
-                    valueAsList: [],
-                    isEditable: true
+                    valueAsList: [`${endDate} 00:00:00`],
+                    messageText: "",
+                    maxLength: 0
                 });
             }
 
-            const commitPayload = { fields: commitFields };
+            const commitPayload = {
+                dbId: targetDbid,
+                fields: commitFields
+            };
 
-            const commitResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Sprint/${sprintDbid}?operation=Commit&useDbid=true`, {
+            const commitResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Sprint/${targetDbid}?operation=Commit&useDbid=true`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
@@ -542,29 +665,30 @@ server.tool(
 
             const commitData = await commitResponse.json();
 
+            const action = isCreating ? "created" : "updated";
             return {
-                content: [{ type: 'text', text: `Sprint dates updated successfully: ${JSON.stringify(commitData)}` }]
+                content: [{ type: 'text', text: `Sprint ${action} successfully: ${JSON.stringify(commitData)}` }]
             };
         } catch (e) {
             return {
-                content: [{ type: 'text', text: `Error updating sprint: ${e.message}` }]
+                content: [{ type: 'text', text: `Error ${sprintDbid ? 'updating' : 'creating'} sprint: ${e.message}` }]
             };
         }
     }
 )
 
-// Tool to update release fields
+// Tool to create or update a release
 server.tool(
-    "update_release",
-    "Updates fields of an existing release. Provide the fields you want to update with their new values.",
+    "create_or_update_release",
+    "Creates a new release or updates an existing release in Plan. If releaseDbid is provided, updates the release; otherwise creates a new one.",
     {
         application: z.string().describe("Name of the application"),
-        releaseDbid: z.string().describe("The dbid field from the release to identify it"),
+        releaseDbid: z.string().optional().describe("The dbid of the release to update (optional - omit to create new release)"),
         fields: z.array(z.object({
-            name: z.string().describe("Field name (e.g., 'Frozen', 'Name', 'ReleaseType', 'Description', etc.)"),
+            name: z.string().describe("Field name (e.g., 'Name', 'ReleaseType', 'Description', 'Frozen', 'Sprints', etc.)"),
             value: z.string().describe("The new value for the field"),
-            type: z.string().optional().describe("Field type (e.g., 'SHORT_STRING', 'MULTILINE_STRING', 'INT', 'REFERENCE', 'DATE_TIME'). Defaults to 'SHORT_STRING'.")
-        })).describe("Array of fields to update")
+            type: z.string().optional().describe("Field type (e.g., 'SHORT_STRING', 'MULTILINE_STRING', 'REFERENCE_LIST', 'DATE_TIME'). Defaults to 'SHORT_STRING'.")
+        })).describe("Array of fields to set/update. For creation, 'Name' is required.")
     },
     async ({ application, releaseDbid, fields }) => {
         try {
@@ -579,52 +703,103 @@ server.tool(
                 console.log("Reusing Stored Cookies:", globalCookies);
             }
 
-            // Step 1: PATCH with operation=Edit (simple fields structure)
-            const editFields = fields.map(field => ({
-                name: field.name,
-                value: field.value
-            }));
+            let targetDbid = releaseDbid;
+            const isCreating = !releaseDbid;
 
-            const editPayload = { fields: editFields };
+            // CREATE MODE: Step 1 - POST to create empty Release
+            if (isCreating) {
+                const hasName = fields.some(f => f.name === "Name");
+                if (!hasName) {
+                    throw new Error("Name field is required when creating a new release");
+                }
 
-            const editResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Release/${releaseDbid}?operation=Edit&useDbid=true`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Basic ${personal_access_token_string}`,
-                    'Cookie': globalCookies
-                },
-                body: JSON.stringify(editPayload)
-            });
+                const createResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Release?operation=Edit&useDbid=true`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Basic ${personal_access_token_string}`,
+                        'Cookie': globalCookies
+                    },
+                    body: JSON.stringify({ fields: [] })
+                });
 
-            if (!editResponse.ok) {
-                const errorText = await editResponse.text();
-                throw new Error(`Edit operation failed: ${editResponse.status} ${errorText}`);
+                if (!createResponse.ok) {
+                    const errorText = await createResponse.text();
+                    throw new Error(`Create operation failed: ${createResponse.status} ${errorText}`);
+                }
+
+                const createData = await createResponse.json();
+                targetDbid = createData.dbId;
+                console.log("Created Release with dbId:", targetDbid);
+            } else {
+                if (fields.length === 0) {
+                    throw new Error("At least one field must be provided for update");
+                }
             }
 
-            const editData = await editResponse.json();
-            console.log("Edit response:", JSON.stringify(editData));
+            // Step 2: PATCH Edit to set fields (may need multiple calls)
+            for (const field of fields) {
+                // For REFERENCE_LIST fields, we need to send valueAsList instead of value
+                const fieldPayload = { name: field.name };
+                if (field.type === "REFERENCE_LIST") {
+                    fieldPayload.valueAsList = field.value.split(',').map(v => v.trim());
+                } else {
+                    fieldPayload.value = field.value;
+                }
+                
+                const editPayload = { fields: [fieldPayload] };
 
-            // Step 2: PATCH with operation=Commit (full field structure with metadata)
-            const commitFields = fields.map(field => ({
-                name: field.name,
-                value: field.value,
-                valueStatus: "HAS_VALUE",
-                validationStatus: "_KNOWN_VALID",
-                requiredness: "OPTIONAL",
-                requirednessForUser: "OPTIONAL",
-                type: field.type || "SHORT_STRING",
-                valueAsList: [field.value],
-                messageText: "",
-                maxLength: field.type === "MULTILINE_STRING" ? 0 : 254
-            }));
+                const editResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Release/${targetDbid}?operation=Edit&useDbid=true`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Basic ${personal_access_token_string}`,
+                        'Cookie': globalCookies
+                    },
+                    body: JSON.stringify(editPayload)
+                });
+
+                if (!editResponse.ok) {
+                    const errorText = await editResponse.text();
+                    throw new Error(`Edit operation failed for ${field.name}: ${editResponse.status} ${errorText}`);
+                }
+
+                const editData = await editResponse.json();
+                //console.log(`Edit response for ${field.name}:`, JSON.stringify(editData));
+            }
+
+            // Step 3: PATCH Commit with full field metadata
+            const commitFields = fields.map(field => {
+                const baseField = {
+                    name: field.name,
+                    valueStatus: "HAS_VALUE",
+                    validationStatus: "_KNOWN_VALID",
+                    requiredness: field.name === "Name" ? "MANDATORY" : "OPTIONAL",
+                    requirednessForUser: field.name === "Name" ? "MANDATORY" : "OPTIONAL",
+                    type: field.type || "SHORT_STRING",
+                    messageText: "",
+                    maxLength: (field.type === "MULTILINE_STRING" || field.type === "REFERENCE_LIST") ? 0 : 254
+                };
+
+                // Handle REFERENCE_LIST type (like Sprints)
+                if (field.type === "REFERENCE_LIST") {
+                    baseField.valueAsList = field.value.split(',').map(v => v.trim());
+                    // For REFERENCE_LIST, join values with newline for the value field
+                    baseField.value = baseField.valueAsList.join('\n');
+                } else {
+                    baseField.value = field.value;
+                    baseField.valueAsList = [field.value];
+                }
+
+                return baseField;
+            });
 
             const commitPayload = {
-                dbId: releaseDbid,
+                dbId: targetDbid,
                 fields: commitFields
             };
 
-            const commitResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Release/${releaseDbid}?operation=Commit&useDbid=true`, {
+            const commitResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Release/${targetDbid}?operation=Commit&useDbid=true`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
@@ -641,12 +816,13 @@ server.tool(
 
             const commitData = await commitResponse.json();
 
+            const action = isCreating ? "created" : "updated";
             return {
-                content: [{ type: 'text', text: `Release updated successfully: ${JSON.stringify(commitData)}` }]
+                content: [{ type: 'text', text: `Release ${action} successfully: ${JSON.stringify(commitData)}` }]
             };
         } catch (e) {
             return {
-                content: [{ type: 'text', text: `Error updating release: ${e.message}` }]
+                content: [{ type: 'text', text: `Error ${releaseDbid ? 'updating' : 'creating'} release: ${e.message}` }]
             };
         }
     }
