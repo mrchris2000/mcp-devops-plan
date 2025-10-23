@@ -1140,15 +1140,15 @@ server.tool(
 // Tool to update a work item
 server.tool(
     "update_work_item",
-    "Updates fields of an existing work item. Provide the fields you want to update with their new values.",
+    "Updates fields of an existing work item. Provide the fields you want to update with their new values. IMPORTANT: When assigning a Sprint to a work item, the work item MUST first have the corresponding Release assigned to its PlannedRelease field. You cannot assign a sprint to a work item unless that work item is already part of the release that owns the sprint. Always update PlannedRelease before updating Sprint field.",
     {
         dbid: z.string().describe("The dbid field from the workitem to identify it"),
         application: z.string().describe("Name of the application"),
         fields: z.array(z.object({
-            name: z.string().describe("Field name (e.g., 'Description', 'Owner', 'Component', 'Sprint', 'StoryPoints', 'BusinessValue', etc.)"),
-            value: z.string().describe("The new value for the field"),
-            type: z.string().optional().describe("Field type (e.g., 'SHORT_STRING', 'MULTILINE_STRING', 'INT', 'REFERENCE', 'DATE_TIME'). Defaults to 'SHORT_STRING'."),
-        })).describe("Array of fields to update"),
+            name: z.string().describe("Field name (e.g., 'Description', 'Owner', 'Component', 'Sprint', 'PlannedRelease', 'StoryPoints', 'BusinessValue', etc.)"),
+            value: z.string().describe("The new value for the field. For 'Sprint' field, use the exact sprint name (e.g., 'Sprint 1 - Planning & Foundation'). For 'PlannedRelease' field, use the exact release name (e.g., 'Release 2')."),
+            type: z.string().optional().describe("Field type (e.g., 'SHORT_STRING', 'MULTILINE_STRING', 'INT', 'REFERENCE', 'DATE_TIME'). Use 'REFERENCE' for Sprint and PlannedRelease fields. Defaults to 'SHORT_STRING'."),
+        })).describe("Array of fields to update. CRITICAL: To assign a Sprint, first ensure PlannedRelease is set to the release that contains that sprint, otherwise the Sprint assignment will fail."),
     },
     async ({ dbid, application, fields }) => {
         try {
