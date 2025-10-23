@@ -686,9 +686,9 @@ server.tool(
         releaseDbid: z.string().optional().describe("The dbid of the release to update (optional - omit to create new release)"),
         fields: z.array(z.object({
             name: z.string().describe("Field name (e.g., 'Name', 'ReleaseType', 'Description', 'Frozen', 'Sprints', etc.)"),
-            value: z.string().describe("The new value for the field"),
-            type: z.string().optional().describe("Field type (e.g., 'SHORT_STRING', 'MULTILINE_STRING', 'REFERENCE_LIST', 'DATE_TIME'). Defaults to 'SHORT_STRING'.")
-        })).describe("Array of fields to set/update. For creation, 'Name' is required.")
+            value: z.string().describe("The new value for the field. IMPORTANT: For REFERENCE_LIST fields like 'Sprints', use NAMES not IDs - provide comma-separated sprint names (e.g., 'Sprint 1,Sprint 2,Sprint 3')."),
+            type: z.string().optional().describe("Field type (e.g., 'SHORT_STRING', 'MULTILINE_STRING', 'REFERENCE_LIST', 'DATE_TIME'). Use 'REFERENCE_LIST' for fields like 'Sprints' that reference other entities. Defaults to 'SHORT_STRING'.")
+        })).describe("Array of fields to set/update. For creation, 'Name' is required. When setting Sprints, always use type='REFERENCE_LIST' and provide sprint names, not dbids.")
     },
     async ({ application, releaseDbid, fields }) => {
         try {
