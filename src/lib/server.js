@@ -228,11 +228,17 @@ server.tool(
             });
 
             const projectsData = await projectsResponse.json();
+            console.log("Projects Data:", JSON.stringify(projectsData));
+            const output = JSON.stringify(projectsData.rows[0].values[0]).trim();
+
+            const match = output.match(/"(\d+)"/);
+            const projectId = match ? match[1] : null;
 
             if (projectsData && projectsData.rows) {
                 const projectNames = projectsData.rows.map(row => row.displayName);
+                const projectIds = projectsData.rows.map(row => row.values[0]);
                 return {
-                    content: [{ type: 'text', text: `Projects retrieved: ${JSON.stringify(projectNames)}` }]
+                    content: [{ type: 'text', text: `Projects retrieved: ${JSON.stringify(projectNames)} , ProjectIDs: ${JSON.stringify(projectIds)} ` } ]
                 };
             } else {
                 throw new Error("Failed to retrieve projects");
@@ -508,15 +514,16 @@ server.tool(
 // Tool to create or update a sprint
 server.tool(
     "create_or_update_sprint",
-    "Creates a new sprint or updates an existing sprint in Plan. If sprintDbid is provided, updates the sprint; otherwise creates a new one.",
+    "Creates a new sprint or updates an existing sprint in Plan. If sprintDbid is provided, updates the sprint; otherwise creates a new one. If projectID is provided, automatically adds the sprint to the project (atomic operation).",
     {
         application: z.string().describe("Name of the application"),
         sprintDbid: z.string().optional().describe("The dbid of the sprint to update (optional - omit to create new sprint)"),
+        projectID: z.string().optional().describe("The dbid of the project to automatically add this sprint to (optional but recommended)"),
         name: z.string().optional().describe("Name of the sprint (required for creation, optional for update)"),
         startDate: z.string().optional().describe("Start date in YYYY-MM-DD format (optional)"),
         endDate: z.string().optional().describe("End date in YYYY-MM-DD format (optional)")
     },
-    async ({ application, sprintDbid, name, startDate, endDate }) => {
+    async ({ application, sprintDbid, projectID, name, startDate, endDate }) => {
         try {
             if (!globalCookies) {
                 globalCookies = await getCookiesFromServer(serverURL);
@@ -665,9 +672,75 @@ server.tool(
 
             const commitData = await commitResponse.json();
 
+            // Step 4: If projectID is provided, add this sprint to the project
+            if (projectID && name) {
+                try {
+                    // First, get the current project to retrieve existing sprints
+                    const getProjectResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Project/${projectID}?useDbid=true`, {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Basic ${personal_access_token_string}`,
+                            'Cookie': globalCookies
+                        }
+                    });
+
+                    if (getProjectResponse.ok) {
+                        const projectData = await getProjectResponse.json();
+                        const sprintsField = projectData.fields.find(f => f.name === "Sprints");
+                        
+                        // Get existing sprints and add the new one if not already present
+                        let existingSprints = sprintsField?.valueAsList || [];
+                        if (!existingSprints.includes(name)) {
+                            existingSprints.push(name);
+                            
+                            // Update the project with the new sprints list
+                            const projectCommitPayload = {
+                                dbId: projectID,
+                                fields: [{
+                                    name: "Sprints",
+                                    value: existingSprints.join('\n'),
+                                    valueStatus: "HAS_VALUE",
+                                    validationStatus: "_KNOWN_VALID",
+                                    requiredness: "OPTIONAL",
+                                    requirednessForUser: "OPTIONAL",
+                                    type: "REFERENCE_LIST",
+                                    valueAsList: existingSprints,
+                                    messageText: "",
+                                    maxLength: 0
+                                }]
+                            };
+
+                            const updateProjectResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Project/${projectID}?operation=Commit&useDbid=true`, {
+                                method: 'PATCH',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Basic ${personal_access_token_string}`,
+                                    'Cookie': globalCookies
+                                },
+                                body: JSON.stringify(projectCommitPayload)
+                            });
+
+                            if (updateProjectResponse.ok) {
+                                console.log(`Added sprint ${name} to project ${projectID}`);
+                            } else {
+                                const errorText = await updateProjectResponse.text();
+                                console.warn(`Failed to add sprint to project: ${errorText}`);
+                            }
+                        } else {
+                            console.log(`Sprint ${name} already in project ${projectID}`);
+                        }
+                    }
+                } catch (projectError) {
+                    console.warn(`Failed to update project with sprint: ${projectError.message}`);
+                    // Don't fail the whole operation if project update fails
+                }
+            }
+
             const action = isCreating ? "created" : "updated";
+            const projectMessage = projectID ? ` and added to project ${projectID}` : "";
             return {
-                content: [{ type: 'text', text: `Sprint ${action} successfully: ${JSON.stringify(commitData)}` }]
+                content: [{ type: 'text', text: `Sprint ${action} successfully${projectMessage}: ${JSON.stringify(commitData)}` }]
             };
         } catch (e) {
             return {
@@ -680,9 +753,10 @@ server.tool(
 // Tool to create or update a release
 server.tool(
     "create_or_update_release",
-    "Creates a new release or updates an existing release in Plan. If releaseDbid is provided, updates the release; otherwise creates a new one.",
+    "Creates a new release or updates an existing release in Plan. If releaseDbid is provided, updates the release; otherwise creates a new one. If projectID is provided, automatically adds the release to the project (atomic operation).",
     {
         application: z.string().describe("Name of the application"),
+        projectID: z.string().describe("The ID of the project to automatically add this release to"),
         releaseDbid: z.string().optional().describe("The dbid of the release to update (optional - omit to create new release)"),
         fields: z.array(z.object({
             name: z.string().describe("Field name (e.g., 'Name', 'ReleaseType', 'Description', 'Frozen', 'Sprints', etc.)"),
@@ -690,7 +764,7 @@ server.tool(
             type: z.string().optional().describe("Field type (e.g., 'SHORT_STRING', 'MULTILINE_STRING', 'REFERENCE_LIST', 'DATE_TIME'). Use 'REFERENCE_LIST' for fields like 'Sprints' that reference other entities. Defaults to 'SHORT_STRING'.")
         })).describe("Array of fields to set/update. For creation, 'Name' is required. When setting Sprints, always use type='REFERENCE_LIST' and provide sprint names, not dbids.")
     },
-    async ({ application, releaseDbid, fields }) => {
+    async ({ application, releaseDbid, projectID, fields }) => {
         try {
             if (!globalCookies) {
                 globalCookies = await getCookiesFromServer(serverURL);
@@ -815,10 +889,79 @@ server.tool(
             }
 
             const commitData = await commitResponse.json();
+            
+            // Get the release name for adding to project
+            const releaseName = fields.find(f => f.name === "Name")?.value;
+
+            // Step 4: If projectID is provided, add this release to the project
+            if (projectID && releaseName) {
+                try {
+                    // First, get the current project to retrieve existing releases
+                    const getProjectResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Project/${projectID}?useDbid=true`, {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Basic ${personal_access_token_string}`,
+                            'Cookie': globalCookies
+                        }
+                    });
+
+                    if (getProjectResponse.ok) {
+                        const projectData = await getProjectResponse.json();
+                        const releasesField = projectData.fields.find(f => f.name === "Releases");
+                        
+                        // Get existing releases and add the new one if not already present
+                        let existingReleases = releasesField?.valueAsList || [];
+                        if (!existingReleases.includes(releaseName)) {
+                            existingReleases.push(releaseName);
+                            
+                            // Update the project with the new releases list
+                            const projectCommitPayload = {
+                                dbId: projectID,
+                                fields: [{
+                                    name: "Releases",
+                                    value: existingReleases.join('\n'),
+                                    valueStatus: "HAS_VALUE",
+                                    validationStatus: "_KNOWN_VALID",
+                                    requiredness: "OPTIONAL",
+                                    requirednessForUser: "OPTIONAL",
+                                    type: "REFERENCE_LIST",
+                                    valueAsList: existingReleases,
+                                    messageText: "",
+                                    maxLength: 0
+                                }]
+                            };
+
+                            const updateProjectResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/Project/${projectID}?operation=Commit&useDbid=true`, {
+                                method: 'PATCH',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Basic ${personal_access_token_string}`,
+                                    'Cookie': globalCookies
+                                },
+                                body: JSON.stringify(projectCommitPayload)
+                            });
+
+                            if (updateProjectResponse.ok) {
+                                console.log(`Added release ${releaseName} to project ${projectID}`);
+                            } else {
+                                const errorText = await updateProjectResponse.text();
+                                console.warn(`Failed to add release to project: ${errorText}`);
+                            }
+                        } else {
+                            console.log(`Release ${releaseName} already in project ${projectID}`);
+                        }
+                    }
+                } catch (projectError) {
+                    console.warn(`Failed to update project with release: ${projectError.message}`);
+                    // Don't fail the whole operation if project update fails
+                }
+            }
 
             const action = isCreating ? "created" : "updated";
+            const projectMessage = projectID ? ` and added to project ${projectID}` : "";
             return {
-                content: [{ type: 'text', text: `Release ${action} successfully: ${JSON.stringify(commitData)}` }]
+                content: [{ type: 'text', text: `Release ${action} successfully${projectMessage}: ${JSON.stringify(commitData)}` }]
             };
         } catch (e) {
             return {
