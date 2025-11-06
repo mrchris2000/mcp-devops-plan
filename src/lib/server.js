@@ -5,9 +5,26 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { config as loadEnv } from 'dotenv';
+import https from 'https';
+import { Agent as HttpAgent } from 'http';
 
 // Load environment variables from .env file if it exists
 loadEnv();
+
+// Configure HTTPS agent for self-signed certificates
+// Set NODE_TLS_REJECT_UNAUTHORIZED=0 via environment variable to disable certificate verification
+// Or set PLAN_REJECT_UNAUTHORIZED=false to disable it specifically for Plan connections
+const rejectUnauthorized = process.env.PLAN_REJECT_UNAUTHORIZED !== 'false' && 
+                           process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0';
+
+// Create HTTPS agent that can handle self-signed certificates if disabled
+const httpsAgent = new https.Agent({
+    rejectUnauthorized: rejectUnauthorized
+});
+
+const httpAgent = new HttpAgent({
+    keepAlive: true
+});
 
 // Configuration from environment variables or command line arguments
 function getConfig() {
@@ -54,6 +71,13 @@ function getConfig() {
 // Get configuration at startup
 const { personal_access_token_string, serverURL, teamspaceID } = getConfig();
 
+// Helper function to add the appropriate agent to fetch options
+function getAgentOptions(url) {
+    return {
+        agent: url.startsWith('https') ? httpsAgent : httpAgent
+    };
+}
+
 // Create an MCP server
 const server = new McpServer({
     name: "MCP DevOps Plan",
@@ -65,7 +89,8 @@ async function getCookiesFromServer(serverURL) {
     try {
         let response = await fetch(`${serverURL}/ccmweb/rest/analytics/serverurl`, {
             method: 'GET',
-            credentials: 'include'
+            credentials: 'include',
+            ...getAgentOptions(serverURL)
         });
 
         if (!response.ok) {
@@ -128,7 +153,8 @@ async function _updateEntity(application, entityType, entityDbid, editFields, co
             'Authorization': `Basic ${personal_access_token_string}`,
             'Cookie': globalCookies
         },
-        body: JSON.stringify(editPayload)
+        body: JSON.stringify(editPayload),
+        ...getAgentOptions(serverURL)
     });
 
     if (!editResponse.ok) {
@@ -152,7 +178,8 @@ async function _updateEntity(application, entityType, entityDbid, editFields, co
             'Authorization': `Basic ${personal_access_token_string}`,
             'Cookie': globalCookies
         },
-        body: JSON.stringify(commitPayload)
+        body: JSON.stringify(commitPayload),
+        ...getAgentOptions(serverURL)
     });
 
     if (!commitResponse.ok) {
@@ -208,7 +235,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 },
-                body: JSON.stringify(queryPayload)
+                body: JSON.stringify(queryPayload),
+                ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -224,7 +252,8 @@ server.tool(
                     'Content-Type': 'application/json',
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
-                }
+                },
+                ...getAgentOptions(serverURL)
             });
 
             const projectsData = await projectsResponse.json();
@@ -300,7 +329,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 },
-                body: JSON.stringify(queryPayload)
+                body: JSON.stringify(queryPayload),
+                ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -316,7 +346,8 @@ server.tool(
                     'Content-Type': 'application/json',
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
-                }
+                },
+                ...getAgentOptions(serverURL)
             });
 
             const componentsData = await componentsResponse.json();
@@ -390,6 +421,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(queryPayload)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -406,6 +439,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const sprintsData = await sprintsResponse.json();
@@ -476,6 +511,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(queryPayload)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -492,6 +529,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const releasesData = await releasesResponse.json();
@@ -553,6 +592,8 @@ server.tool(
                         'Cookie': globalCookies
                     },
                     body: JSON.stringify({ fields: [] })
+                ,
+                ...getAgentOptions(serverURL)
                 });
 
                 if (!createResponse.ok) {
@@ -592,6 +633,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(editPayload)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!editResponse.ok) {
@@ -663,6 +706,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(commitPayload)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!commitResponse.ok) {
@@ -683,6 +728,8 @@ server.tool(
                             'Authorization': `Basic ${personal_access_token_string}`,
                             'Cookie': globalCookies
                         }
+                    ,
+                    ...getAgentOptions(serverURL)
                     });
 
                     if (getProjectResponse.ok) {
@@ -719,6 +766,8 @@ server.tool(
                                     'Cookie': globalCookies
                                 },
                                 body: JSON.stringify(projectCommitPayload)
+                            ,
+                            ...getAgentOptions(serverURL)
                             });
 
                             if (updateProjectResponse.ok) {
@@ -795,6 +844,8 @@ server.tool(
                         'Cookie': globalCookies
                     },
                     body: JSON.stringify({ fields: [] })
+                ,
+                ...getAgentOptions(serverURL)
                 });
 
                 if (!createResponse.ok) {
@@ -831,6 +882,8 @@ server.tool(
                         'Cookie': globalCookies
                     },
                     body: JSON.stringify(editPayload)
+                ,
+                ...getAgentOptions(serverURL)
                 });
 
                 if (!editResponse.ok) {
@@ -881,6 +934,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(commitPayload)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!commitResponse.ok) {
@@ -904,6 +959,8 @@ server.tool(
                             'Authorization': `Basic ${personal_access_token_string}`,
                             'Cookie': globalCookies
                         }
+                    ,
+                    ...getAgentOptions(serverURL)
                     });
 
                     if (getProjectResponse.ok) {
@@ -940,6 +997,8 @@ server.tool(
                                     'Cookie': globalCookies
                                 },
                                 body: JSON.stringify(projectCommitPayload)
+                            ,
+                            ...getAgentOptions(serverURL)
                             });
 
                             if (updateProjectResponse.ok) {
@@ -1017,6 +1076,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(queryPayload)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -1033,6 +1094,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const workItemTypesData = await workItemTypesResponse.json();
@@ -1067,9 +1130,9 @@ server.tool(
         description: z.string().describe("Description of the work item"),
         workItemType: z.string().describe("Type of the work item from the list of available work item types"),
         application: z.string().describe("Name of the application"),
-        projectId: z.string().describe("ID of the project")
+        projectName: z.string().describe("Name of the project")
     },
-    async ({component, title, description, workItemType, application, projectId }) => {
+    async ({component, title, description, workItemType, application, projectName }) => {
         try {
             if (!globalCookies) {
                 globalCookies = await getCookiesFromServer(serverURL);
@@ -1087,8 +1150,8 @@ server.tool(
                 bodyJSON.fields[0].value = component || "";
                 bodyJSON.fields[0].valueAsList[0] = component || "";
             } 
-            bodyJSON.fields[2].value = projectId;
-            bodyJSON.fields[2].valueAsList[0] = projectId;
+            bodyJSON.fields[2].value = projectName;
+            bodyJSON.fields[2].valueAsList[0] = projectName;
             bodyJSON.fields[4].value = title;
             bodyJSON.fields[4].valueAsList[0] = title;
             bodyJSON.fields[5].value = description;
@@ -1106,6 +1169,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: body
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const data = await response.json();
@@ -1130,11 +1195,11 @@ server.tool(
     "Retrieves all work items for a given application, can filter by work item type and specific owner",
     {
         applicationName: z.string().describe("Name of the application"),
-        projectId: z.string().describe("ID of the project"),
+        projectName: z.string().describe("Name of the project"),
         workitemType: z.string().optional().describe("Type of the work item to filter by, if any"),
         owner: z.string().optional().describe("Filter the workitems by owner, if any")
     },
-    async ({ applicationName, projectId, workitemType, owner }) => {
+    async ({ applicationName, projectName, workitemType, owner }) => {
         try {
             if (!globalCookies) {
                 globalCookies = await getCookiesFromServer(serverURL);
@@ -1180,7 +1245,7 @@ server.tool(
                     filterNode: {
                         boolOp: "BOOL_OP_AND",
                         fieldFilters: [
-                            { fieldPath: "Project", compOp: "COMP_OP_EQ", values: [projectId] },
+                            { fieldPath: "Project", compOp: "COMP_OP_EQ", values: [projectName] },
                             ...(owner ? [{ fieldPath: "Owner", compOp: "COMP_OP_EQ", values: ["[CURRENT_USER]"] }] : []),
                             ...(workitemType ? [{ fieldPath: "WIType", compOp: "COMP_OP_EQ", values: [workitemType] }] : [])
                         ]
@@ -1200,6 +1265,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(queryPayload)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -1210,13 +1277,15 @@ server.tool(
             }
 
             // Second API call to fetch work items
-            const workItemsResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${applicationName}/query/${resultSetId}?pageNumber=1`, {
+            const workItemsResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${applicationName}/query/${resultSetId}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const workItemsData = await workItemsResponse.json();
@@ -1263,6 +1332,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (response.ok) {
@@ -1318,6 +1389,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: "{}"
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!modifyResponse.ok) {
@@ -1346,6 +1419,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(editBody)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!editResponse.ok) {
@@ -1384,6 +1459,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(commitBody)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (commitResponse.ok) {
@@ -1429,6 +1506,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             const data = await response.json();
@@ -1484,6 +1563,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!response.ok) {
@@ -1593,6 +1674,8 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!getCurrentResponse.ok) {
@@ -1613,6 +1696,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: "{}"  // Minimal body like in browser
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!movementResponse.ok) {
@@ -1643,6 +1728,8 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(commitBody)
+            ,
+            ...getAgentOptions(serverURL)
             });
 
             if (!commitResponse.ok) {
