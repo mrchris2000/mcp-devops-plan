@@ -421,8 +421,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(queryPayload)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -439,8 +438,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const sprintsData = await sprintsResponse.json();
@@ -511,8 +509,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(queryPayload)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -529,8 +526,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const releasesData = await releasesResponse.json();
@@ -592,8 +588,7 @@ server.tool(
                         'Cookie': globalCookies
                     },
                     body: JSON.stringify({ fields: [] })
-                ,
-                ...getAgentOptions(serverURL)
+                , ...getAgentOptions(serverURL)
                 });
 
                 if (!createResponse.ok) {
@@ -633,8 +628,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(editPayload)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!editResponse.ok) {
@@ -706,8 +700,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(commitPayload)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!commitResponse.ok) {
@@ -728,8 +721,7 @@ server.tool(
                             'Authorization': `Basic ${personal_access_token_string}`,
                             'Cookie': globalCookies
                         }
-                    ,
-                    ...getAgentOptions(serverURL)
+                    , ...getAgentOptions(serverURL)
                     });
 
                     if (getProjectResponse.ok) {
@@ -766,8 +758,7 @@ server.tool(
                                     'Cookie': globalCookies
                                 },
                                 body: JSON.stringify(projectCommitPayload)
-                            ,
-                            ...getAgentOptions(serverURL)
+                            , ...getAgentOptions(serverURL)
                             });
 
                             if (updateProjectResponse.ok) {
@@ -844,8 +835,7 @@ server.tool(
                         'Cookie': globalCookies
                     },
                     body: JSON.stringify({ fields: [] })
-                ,
-                ...getAgentOptions(serverURL)
+                , ...getAgentOptions(serverURL)
                 });
 
                 if (!createResponse.ok) {
@@ -882,8 +872,7 @@ server.tool(
                         'Cookie': globalCookies
                     },
                     body: JSON.stringify(editPayload)
-                ,
-                ...getAgentOptions(serverURL)
+                , ...getAgentOptions(serverURL)
                 });
 
                 if (!editResponse.ok) {
@@ -934,8 +923,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(commitPayload)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!commitResponse.ok) {
@@ -959,8 +947,7 @@ server.tool(
                             'Authorization': `Basic ${personal_access_token_string}`,
                             'Cookie': globalCookies
                         }
-                    ,
-                    ...getAgentOptions(serverURL)
+                    , ...getAgentOptions(serverURL)
                     });
 
                     if (getProjectResponse.ok) {
@@ -997,8 +984,7 @@ server.tool(
                                     'Cookie': globalCookies
                                 },
                                 body: JSON.stringify(projectCommitPayload)
-                            ,
-                            ...getAgentOptions(serverURL)
+                            , ...getAgentOptions(serverURL)
                             });
 
                             if (updateProjectResponse.ok) {
@@ -1076,8 +1062,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(queryPayload)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -1094,8 +1079,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const workItemTypesData = await workItemTypesResponse.json();
@@ -1144,42 +1128,102 @@ server.tool(
             } else {
                 console.log("Reusing Stored Cookies:", globalCookies);
             }
-            let bodyJSON = JSON.parse(createWorkItemBody);
-            if(component !== undefined){
-                // Use empty string if not provided
-                bodyJSON.fields[0].value = component || "";
-                bodyJSON.fields[0].valueAsList[0] = component || "";
-            } 
-            bodyJSON.fields[2].value = projectName;
-            bodyJSON.fields[2].valueAsList[0] = projectName;
-            bodyJSON.fields[4].value = title;
-            bodyJSON.fields[4].valueAsList[0] = title;
-            bodyJSON.fields[5].value = description;
-            bodyJSON.fields[5].valueAsList[0] = description;
-            bodyJSON.fields[6].value = workItemType;
-            bodyJSON.fields[6].valueAsList[0] = workItemType;
-            let body = JSON.stringify(bodyJSON);
 
-            const response = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/?operation=Commit&useDbid=false`, {
+            // Step 1: POST with operation=Edit to create empty WorkItem and get dbId
+            const createResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem?operation=Edit&useDbid=true`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Accept': 'application/json',
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 },
-                body: body
-            ,
-            ...getAgentOptions(serverURL)
+                body: JSON.stringify({ fields: [] }),
+                ...getAgentOptions(serverURL)
             });
 
-            const data = await response.json();
+            if (!createResponse.ok) {
+                const errorText = await createResponse.text();
+                throw new Error(`Create operation failed: ${createResponse.status} ${errorText}`);
+            }
+
+            const createData = await createResponse.json();
+            const targetDbid = createData.dbId;
+            console.log("Created WorkItem with dbId:", targetDbid);
+
+            // Step 2: PATCH with operation=Edit to set field values
+            const editFields = [
+                { name: "Title", value: title },
+                { name: "Description", value: description },
+                { name: "WIType", value: workItemType },
+                { name: "Project", value: projectName }
+            ];
+            if (component) {
+                editFields.push({ name: "Component", value: component });
+            }
+
+            const editResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/${targetDbid}?operation=Edit&useDbid=true`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: JSON.stringify({ fields: editFields }),
+                ...getAgentOptions(serverURL)
+            });
+
+            if (!editResponse.ok) {
+                const errorText = await editResponse.text();
+                throw new Error(`Edit operation failed: ${editResponse.status} ${errorText}`);
+            }
+
+            const editData = await editResponse.json();
+            console.log("Edit response:", JSON.stringify(editData));
+
+            // Step 3: PATCH with operation=Commit to finalize creation
+            const commitFields = editData.fields.map(field => ({
+                name: field.name,
+                value: field.value,
+                valueStatus: field.valueStatus,
+                validationStatus: field.validationStatus,
+                requiredness: field.requiredness,
+                requirednessForUser: field.requirednessForUser,
+                type: field.type,
+                valueAsList: field.valueAsList,
+                messageText: field.messageText || "",
+                maxLength: field.maxLength || 0
+            }));
+
+            const commitResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem/${targetDbid}?operation=Commit&useDbid=true`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${personal_access_token_string}`,
+                    'Cookie': globalCookies
+                },
+                body: JSON.stringify({
+                    dbId: targetDbid,
+                    displayName: editData.displayName || "WorkItem",
+                    entityDefName: "WorkItem",
+                    fields: commitFields
+                }),
+                ...getAgentOptions(serverURL)
+            });
+
+            if (!commitResponse.ok) {
+                const errorText = await commitResponse.text();
+                throw new Error(`Commit operation failed: ${commitResponse.status} ${errorText}`);
+            }
+
+            const data = await commitResponse.json();
+            console.log("Commit response:", JSON.stringify(data));
+
             if (data.viewURL) {
                 return {
                     content: [{ type: 'text', text: `Work item created successfully. dbId: ${data.dbId}. View it at: ${serverURL}/#${data.viewURL}` }]
                 };
             } else {
-                throw new Error("Failed to create work item");
+                throw new Error("Failed to create work item: " + JSON.stringify(data));
             }
         } catch (e) {
             return {
@@ -1265,8 +1309,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(queryPayload)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const queryData = await queryResponse.json();
@@ -1284,8 +1327,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const workItemsData = await workItemsResponse.json();
@@ -1332,8 +1374,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (response.ok) {
@@ -1389,8 +1430,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: "{}"
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!modifyResponse.ok) {
@@ -1419,8 +1459,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(editBody)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!editResponse.ok) {
@@ -1459,8 +1498,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(commitBody)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (commitResponse.ok) {
@@ -1506,8 +1544,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             const data = await response.json();
@@ -1563,8 +1600,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!response.ok) {
@@ -1674,8 +1710,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 }
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!getCurrentResponse.ok) {
@@ -1696,8 +1731,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: "{}"  // Minimal body like in browser
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!movementResponse.ok) {
@@ -1728,8 +1762,7 @@ server.tool(
                     'Cookie': globalCookies
                 },
                 body: JSON.stringify(commitBody)
-            ,
-            ...getAgentOptions(serverURL)
+            , ...getAgentOptions(serverURL)
             });
 
             if (!commitResponse.ok) {
