@@ -1,11 +1,11 @@
 {
   "name": "@securedevops/mcp-devops-plan",
-  "version": "0.1.72",
+  "version": "0.1.75",
   "description": "A Model Context Protocol (MCP) server for DevOps Plan work item management",
   "type": "module",
   "main": "src/lib/server.js",
   "bin": {
-    "mcp-devops-plan": "./src/lib/server.js"
+    "mcp-devops-plan": "src/lib/server.js"
   },
   "files": [
     "src/",
@@ -22,7 +22,7 @@
   },
   "keywords": [
     "mcp",
-    "model-context-protocol", 
+    "model-context-protocol",
     "devops",
     "plan",
     "loop",
@@ -34,7 +34,7 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/securedevops/mcp-devops-plan.git"
+    "url": "git+https://github.com/securedevops/mcp-devops-plan.git"
   },
   "homepage": "https://github.com/securedevops/mcp-devops-plan#readme",
   "bugs": {

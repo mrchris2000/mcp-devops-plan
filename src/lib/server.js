@@ -1130,6 +1130,20 @@ server.tool(
             }
 
             // Step 1: POST with operation=Edit to create empty WorkItem and get dbId
+
+            const commitFields = editData.fields.map(field => ({
+                name: field.name,
+                value: field.value,
+                valueStatus: field.valueStatus,
+                validationStatus: field.validationStatus,
+                requiredness: field.requiredness,
+                requirednessForUser: field.requirednessForUser,
+                type: field.type,
+                valueAsList: field.valueAsList,
+                messageText: field.messageText || "",
+                maxLength: field.maxLength || 0
+            }));
+
             const createResponse = await fetch(`${serverURL}/ccmweb/rest/repos/${teamspaceID}/databases/${application}/records/WorkItem?operation=Edit&useDbid=true`, {
                 method: 'POST',
                 headers: {
@@ -1137,7 +1151,7 @@ server.tool(
                     'Authorization': `Basic ${personal_access_token_string}`,
                     'Cookie': globalCookies
                 },
-                body: JSON.stringify({ fields: [] }),
+                body: JSON.stringify(commitFields),
                 ...getAgentOptions(serverURL)
             });
 
@@ -1150,6 +1164,7 @@ server.tool(
             const targetDbid = createData.dbId;
             console.log("Created WorkItem with dbId:", targetDbid);
 
+            /*
             // Step 2: PATCH with operation=Edit to set field values
             const editFields = [
                 { name: "Title", value: title },
@@ -1209,7 +1224,7 @@ server.tool(
                 }),
                 ...getAgentOptions(serverURL)
             });
-
+            */
             if (!commitResponse.ok) {
                 const errorText = await commitResponse.text();
                 throw new Error(`Commit operation failed: ${commitResponse.status} ${errorText}`);
